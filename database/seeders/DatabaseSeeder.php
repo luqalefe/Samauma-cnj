@@ -13,6 +13,7 @@ class DatabaseSeeder extends Seeder
             SetorSeeder::class,
             AdminUserSeeder::class,
             CsvImportSeeder::class,
+            ItensTreSeeder::class,
         ]);
     }
 }

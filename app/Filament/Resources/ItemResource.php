@@ -34,9 +34,9 @@ class ItemResource extends Resource
                     ->schema([
                         Forms\Components\Select::make('eixo')
                             ->options([
-                                'Eixo Governança' => 'Eixo Governança',
-                                'Eixo Produtividade' => 'Eixo Produtividade',
-                                'Eixo Transparência' => 'Eixo Transparência',
+                                'Governança' => 'Governança',
+                                'Produtividade' => 'Produtividade',
+                                'Transparência' => 'Transparência',
                                 'Dados e Tecnologia' => 'Dados e Tecnologia',
                             ])
                             ->required()
@@ -121,13 +121,14 @@ class ItemResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn($query) => $query->whereNull('parent_id'))
             ->columns([
                 Tables\Columns\TextColumn::make('eixo')
                     ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'Eixo Governança' => 'success',
-                        'Eixo Produtividade' => 'info',
-                        'Eixo Transparência' => 'warning',
+                    ->color(fn(string $state): string => match ($state) {
+                        'Governança' => 'success',
+                        'Produtividade' => 'info',
+                        'Transparência' => 'warning',
                         'Dados e Tecnologia' => 'primary',
                         default => 'gray',
                     })
@@ -140,8 +141,15 @@ class ItemResource extends Resource
 
                 Tables\Columns\TextColumn::make('requisito')
                     ->limit(50)
-                    ->tooltip(fn (Item $record) => $record->requisito)
+                    ->tooltip(fn(Item $record) => $record->requisito)
                     ->searchable(),
+
+                Tables\Columns\TextColumn::make('children_count')
+                    ->label('Sub-itens')
+                    ->counts('children')
+                    ->badge()
+                    ->color(fn(int $state): string => $state > 0 ? 'info' : 'gray')
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('setor.sigla')
                     ->label('Setor')
@@ -157,11 +165,6 @@ class ItemResource extends Resource
                     ->badge()
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('tarefas_count')
-                    ->label('Tarefas')
-                    ->counts('tarefas')
-                    ->sortable(),
-
                 Tables\Columns\TextColumn::make('prazo_fim')
                     ->label('Prazo')
                     ->date('d/m/Y')
@@ -171,9 +174,9 @@ class ItemResource extends Resource
             ->filters([
                 Tables\Filters\SelectFilter::make('eixo')
                     ->options([
-                        'Eixo Governança' => 'Eixo Governança',
-                        'Eixo Produtividade' => 'Eixo Produtividade',
-                        'Eixo Transparência' => 'Eixo Transparência',
+                        'Governança' => 'Governança',
+                        'Produtividade' => 'Produtividade',
+                        'Transparência' => 'Transparência',
                         'Dados e Tecnologia' => 'Dados e Tecnologia',
                     ]),
 
@@ -200,6 +203,7 @@ class ItemResource extends Resource
     public static function getRelations(): array
     {
         return [
+            RelationManagers\SubItensRelationManager::class,
             RelationManagers\TarefasRelationManager::class,
             RelationManagers\ComentariosRelationManager::class,
         ];

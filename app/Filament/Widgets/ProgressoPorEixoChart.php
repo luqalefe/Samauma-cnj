@@ -8,12 +8,13 @@ use Filament\Widgets\ChartWidget;
 class ProgressoPorEixoChart extends ChartWidget
 {
     protected static ?int $sort = 2;
-    protected int | string | array $columnSpan = 'full';
+    protected int|string|array $columnSpan = 'full';
     protected static ?string $heading = 'Progresso por Eixo';
 
     protected function getData(): array
     {
         $eixos = Item::query()
+            ->whereNull('parent_id')
             ->selectRaw("eixo, COUNT(*) as total, SUM(CASE WHEN status = 'concluido' THEN 1 ELSE 0 END) as concluidos")
             ->groupBy('eixo')
             ->orderBy('eixo')

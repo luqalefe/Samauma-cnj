@@ -11,12 +11,12 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
 class StatsOverview extends BaseWidget
 {
     protected static ?int $sort = 1;
-    protected int | string | array $columnSpan = 'full';
+    protected int|string|array $columnSpan = 'full';
 
     protected function getStats(): array
     {
-        $totalItens = Item::count();
-        $itensConcluidos = Item::where('status', 'concluido')->count();
+        $totalItens = Item::whereNull('parent_id')->count();
+        $itensConcluidos = Item::whereNull('parent_id')->where('status', 'concluido')->count();
         $progressoGeral = $totalItens > 0
             ? round(($itensConcluidos / $totalItens) * 100, 1)
             : 0;

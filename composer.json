@@ -13,6 +13,7 @@
         "filament/filament": "^3.2",
         "laravel/framework": "^11.0",
         "laravel/tinker": "^2.10.1",
+        "smalot/pdfparser": "^2.12",
         "spatie/laravel-permission": "^6.10"
     },
     "require-dev": {
