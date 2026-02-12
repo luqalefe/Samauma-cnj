@@ -7,6 +7,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget as BaseWidget;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\TextInputColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -41,9 +42,9 @@ class CnjItensTable extends BaseWidget
                         'success' => 'concluida',
                     ]),
 
-                TextColumn::make('pontos_maximos')
-                    ->label('Pontos Max.')
-                    ->numeric()
+                TextInputColumn::make('pontos_maximos')
+                    ->label('Pts')
+                    ->type('number')
                     ->sortable(),
 
                 TextColumn::make('pontos_obtidos')

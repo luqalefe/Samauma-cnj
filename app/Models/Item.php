@@ -18,34 +18,69 @@ class Item extends Model
     protected $table = 'itens';
 
     protected $fillable = [
-        'eixo',
-        'artigo',
-        'requisito',
-        'descricao',
-        'alinea',
-        'pontos_maximos',
-        'pontos_obtidos',
-        'requer_documento',
         'parent_id',
         'setor_id',
         'responsavel_id',
+
+        // Identificação Nova
+        'codigo_exibicao',
+        'nome',
+        'descricao',
+
+        // Classificação Nova
+        'tipo', // 'eixo', 'grupo', 'criterio'
+        'ano_exercicio',
+        'eixo', // Mantido para compatibilidade ou migrar para 'tipo'='eixo'
+        'artigo', // Mantido
+        'requisito', // Mantido
+        'alinea', // Mantido
+
+        // Lógica de Cálculo Nova
+        'tipo_calculo',
+        'formula_expressao',
+
+        // Pontuação
+        'pontos_maximos',
+        'pontos_obtidos',
+        'pontos_teto_grupo',
+
+        // Gestão
         'ponto_focal',
         'status',
+        'requer_documento',
         'prazo_inicio',
-        'prazo_fim',
+        'prazo_fim', // Usado como prazo_limite
     ];
 
-    protected function casts(): array
+    protected $casts = [
+        'status' => ItemStatus::class,
+        'requer_documento' => 'boolean',
+        'prazo_inicio' => 'date',
+        'prazo_fim' => 'date',
+        'ano_exercicio' => 'integer',
+        'pontos_maximos' => 'integer',
+        'pontos_obtidos' => 'integer',
+        'pontos_teto_grupo' => 'integer',
+    ];
+
+    // --- Relacionamentos Novos ---
+
+    public function regrasTecnicas(): HasMany
     {
-        return [
-            'status' => ItemStatus::class,
-            'requer_documento' => 'boolean',
-            'prazo_inicio' => 'date',
-            'prazo_fim' => 'date',
-        ];
+        return $this->hasMany(ItemRegraTecnica::class);
     }
 
-    // --- Relationships ---
+    public function excecoes(): HasMany
+    {
+        return $this->hasMany(ItemExcecao::class);
+    }
+
+    public function avaliacoesMensais(): HasMany
+    {
+        return $this->hasMany(AvaliacaoMensal::class);
+    }
+
+    // --- Relacionamentos Existentes ---
 
     public function setor(): BelongsTo
     {
@@ -67,6 +102,12 @@ class Item extends Model
         return $this->hasMany(Item::class, 'parent_id');
     }
 
+    // Recursive children
+    public function descendentes()
+    {
+        return $this->children()->with('descendentes');
+    }
+
     public function tarefas(): HasMany
     {
         return $this->hasMany(Tarefa::class);
@@ -84,20 +125,16 @@ class Item extends Model
 
     // --- Scopes ---
 
-    /**
-     * Eager-load task statistics using withCount subqueries.
-     * One query instead of N+1 correlated subqueries.
-     */
     public function scopeComEstatisticas(Builder $query): Builder
     {
         return $query
             ->withCount([
                 'tarefas',
-                'tarefas as tarefas_concluidas_count' => fn ($q) =>
+                'tarefas as tarefas_concluidas_count' => fn($q) =>
                     $q->where('status', 'concluida'),
-                'tarefas as tarefas_atrasadas_count' => fn ($q) =>
+                'tarefas as tarefas_atrasadas_count' => fn($q) =>
                     $q->where('status', '!=', 'concluida')
-                      ->where('data_fim_prevista', '<', now()),
+                        ->where('data_fim_prevista', '<', now()),
             ])
             ->with(['setor:id,nome,sigla', 'responsavel:id,name']);
     }
@@ -112,20 +149,17 @@ class Item extends Model
         return $query->whereNull('parent_id');
     }
 
-    // --- Accessors ---
-
     public function getProgressoAttribute(): float
     {
         $total = $this->tarefas_count ?? $this->tarefas()->count();
-        if ($total === 0) return 0;
+        if ($total === 0)
+            return 0;
 
         $concluidas = $this->tarefas_concluidas_count
             ?? $this->tarefas()->where('status', 'concluida')->count();
 
         return round(($concluidas / $total) * 100, 1);
     }
-
-    // --- Helpers ---
 
     public static function eixosDisponiveis(): array
     {

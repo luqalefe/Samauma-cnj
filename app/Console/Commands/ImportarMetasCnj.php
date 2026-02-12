@@ -39,11 +39,14 @@ class ImportarMetasCnj extends Command
 
         $this->info('📄 Texto extraído.');
 
-        if ($this->confirm('Deseja limpar a tabela itens antes de importar?', true)) {
+        if ($this->confirm('Deseja limpar a tabela itens (e relacionadas) antes de importar?', true)) {
             DB::statement('SET FOREIGN_KEY_CHECKS=0;');
             DB::table('itens')->truncate();
+            DB::table('itens_regras_tecnicas')->truncate();
+            DB::table('itens_excecoes')->truncate();
+            DB::table('avaliacoes_mensais')->truncate();
             DB::statement('SET FOREIGN_KEY_CHECKS=1;');
-            $this->info('🗑️  Tabela itens truncada.');
+            $this->info('🗑️  Tabelas limpas.');
         }
 
         // Divide o texto pelos Artigos
@@ -69,26 +72,36 @@ class ImportarMetasCnj extends Command
                 continue;
             }
 
-            $artigo = trim($artMatch[1]);
-            $artNumber = $artMatch[2];
+            $codigoExibicaoArtigo = trim($artMatch[1]); // Ex: "Art. 9º"
+            $artNumber = $artMatch[2]; // Ex: "9"
             $eixo = self::EIXO_MAP[$artNumber] ?? 'Outros';
 
             $afterArt = mb_substr($block, mb_strlen($artMatch[0]));
-            $requisito = $this->extractRequisito($afterArt);
+            $nomeArtigo = $this->extractRequisito($afterArt); // "Requisito" agora é o Nome/Título
             $pontosMaximos = $this->extractPontos($block);
             $alineas = $this->extractAlineasHierarquicas($block);
 
-            // ── Insere o item pai (artigo) ──
+            // ── Insere o item pai (TIPO GRUPO/ARTIGO) ──
             $parentId = DB::table('itens')->insertGetId([
+                // Campos Novos
+                'codigo_exibicao' => $codigoExibicaoArtigo,
+                'nome' => $nomeArtigo,
+                'tipo' => 'grupo', // Artigo é um grupo de critérios
+                'ano_exercicio' => 2026,
+                'tipo_calculo' => 'soma_com_teto', // Padrão
+                'formula_expressao' => null,
+                'pontos_teto_grupo' => $pontosMaximos, // Pontos do artigo muitas vezes são o teto da soma das alíneas
+
+                // Campos Antigos/Compatibilidade
                 'eixo' => $eixo,
-                'artigo' => $artigo,
-                'requisito' => $requisito,
+                'artigo' => $codigoExibicaoArtigo,
+                'requisito' => $nomeArtigo,
                 'alinea' => null,
                 'descricao' => $this->cleanText($afterArt),
                 'pontos_maximos' => $pontosMaximos,
                 'pontos_obtidos' => 0,
                 'parent_id' => null,
-                'requer_documento' => true,
+                'requer_documento' => false, // Grupo geralmente não requer doc, os filhos sim
                 'status' => 'nao_iniciado',
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -98,9 +111,8 @@ class ImportarMetasCnj extends Command
             if (empty($alineas))
                 continue;
 
-            // ── Insere as alíneas com hierarquia ──
+            // ── Insere as alíneas com hierarquia (TIPO CRITERIO) ──
             // Detecta letras excluídas para TRE no nível do bloco
-            // Ex: "Os itens (f) e (g) não se aplicam à Justiça Eleitoral"
             $letrasExcluidas = $this->detectarLetrasExcluidasTRE($block);
 
             // Mapa de letras para IDs: ['a' => 5, 'b' => 8, ...]
@@ -120,21 +132,32 @@ class ImportarMetasCnj extends Command
                     continue;
 
                 $pontosAlinea = $this->extractPontos($alinea['texto']) ?: 0;
+                $nomeAlinea = $this->extractRequisito($alinea['texto']);
 
                 // Determina o parent_id baseado no nível
                 if ($alinea['nivel'] === 1) {
-                    // Alínea de letra (a, b, c) → pai é o artigo
+                    // Alínea de letra (a, b, c) → pai é o artigo (Grupo)
                     $alineaParentId = $parentId;
                 } else {
-                    // Sub-alínea (a.1, a.2) → pai é a alínea da letra
+                    // Sub-alínea (a.1, a.2) → pai é a alínea da letra (Critério Pai)
                     $letraPai = $alinea['letra_pai'];
                     $alineaParentId = $letraParaId[$letraPai] ?? $parentId;
                 }
 
                 $alineaId = DB::table('itens')->insertGetId([
+                    // Campos Novos
+                    'codigo_exibicao' => $alinea['letra'], // Ex: "a)", "a.1)"
+                    'nome' => $nomeAlinea,
+                    'tipo' => 'criterio',
+                    'ano_exercicio' => 2026,
+                    'tipo_calculo' => 'manual', // Critério folha geralmente é manual ou booleano
+                    'formula_expressao' => null,
+                    'pontos_teto_grupo' => null,
+
+                    // Campos Antigos
                     'eixo' => $eixo,
-                    'artigo' => $artigo,
-                    'requisito' => $requisito,
+                    'artigo' => $codigoExibicaoArtigo,
+                    'requisito' => $nomeAlinea,
                     'alinea' => $alinea['letra'],
                     'descricao' => $this->cleanText($alinea['texto']),
                     'pontos_maximos' => $pontosAlinea,
@@ -154,7 +177,7 @@ class ImportarMetasCnj extends Command
             }
         }
 
-        $this->info("✅ Importação (TRE) concluída! {$insertedCount} itens inseridos.");
+        $this->info("✅ Importação (TRE) concluída! {$insertedCount} itens inseridos na nova estrutura.");
         return self::SUCCESS;
     }
 
@@ -259,11 +282,28 @@ class ImportarMetasCnj extends Command
         return $title;
     }
 
-    private function extractPontos(string $text): int
+    private function extractPontos(string $text): float
     {
-        if (preg_match('/(?:Até\s+)?(\d+)\s*(?:pontos?|pts)/iu', $text, $m))
-            return (int) $m[1];
-        return 0;
+        // Padrões de pontuação comuns
+        // 1. "Até 10 pontos", "10 pontos", "10 pts"
+        // 2. "valendo 5 pontos"
+        // 3. "5,5 pontos" (converter vírgula para ponto)
+        // 4. Pontuação isolada no final de linha ou string: "Pontos: 10"
+
+        $patterns = [
+            '/(?:Até|valendo|valor)?\s*(\d+(?:[.,]\d+)?)\s*(?:pontos?|pts)/iu',
+            '/Pontua(?:ção|cao)\s*(?:máxima)?\s*[:=]\s*(\d+(?:[.,]\d+)?)/iu',
+            '/(\d+(?:[.,]\d+)?)\s*pontos/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text, $m)) {
+                $valor = str_replace(',', '.', $m[1]);
+                return (float) $valor;
+            }
+        }
+
+        return 0.0;
     }
 
     /**
